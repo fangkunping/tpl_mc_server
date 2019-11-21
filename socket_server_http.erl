@@ -3,6 +3,7 @@
 %	【2019-11-21】g2-1.0.7版本修改
 %	取消resume函数，及自身模块的超时。 
 %	如果 MessagePid 传入 nil 则不发送提示信息
+%	增加 header 数据获取
 %	【2013-12-13】g2-1.0.6版本修改
 %	增加resume函数，仅仅给自身模块使用，用于网页访问超时, 30秒超时。 
 %	【2011-04-20】g2-1.0.5版本修改
@@ -155,9 +156,9 @@ handle_request (Socket, Port, HttpPacket, DataPid)->
 						{_, Value} ->
 							case sp_string:unjoin(Value, "?") of
 								[Path, Value2]->
-									handle_get(Socket, Port, DataPid, {get, Path, Value2});
+									handle_get(Socket, Port, DataPid, {get, Path, Value2, []});
 								_ ->
-									handle_get(Socket, Port, DataPid, {get, Value, []})
+									handle_get(Socket, Port, DataPid, {get, Value, [], []})
 							end;
 							
 						_ ->
@@ -184,13 +185,14 @@ handle_request (Socket, Port, HttpPacket, DataPid)->
 	end
 .
 
-get_content_length(Sock) ->
+get_content_length(Sock, HeaderList) ->
 	case gen_tcp:recv(Sock, 0, ?TCP_RECV_TIMEOUT) of
-		{ok, {http_header, _, 'Content-Length', _, Length}} -> list_to_integer(Length);
+		{ok, {http_header, _, 'Content-Length', _, Length}} -> {list_to_integer(Length), HeaderList};
+		{ok, {http_header, _, Header, _, HeaderValue}} -> get_content_length(Sock, [ {Header, HeaderValue} | HeaderList]);
 		{error, Reason} -> io:format("http_server get_content_length error: ~p ~n",[Reason] );
 		_  ->
 			%% io:format("http_server get_content_length x: ~p ~n",[X] ),
-			get_content_length(Sock)
+			get_content_length(Sock, HeaderList)
 	end
 .
 
@@ -236,14 +238,14 @@ resume(Socket) ->
 	end
 .
 handle_post(Sock, _Port, DataPid, Path) ->
-	Length=get_content_length(Sock),
+	{Length, HeaderList}=get_content_length(Sock, []),
 	PostBody=case Length of
 		0 -> "";
 		_ -> get_body(Sock, Length)
 	end,
 	%%io:format("PostBody :~p~n",[PostBody]),
 	%%io:format("Path :~p~n",[Path]),
-	DataPid(data_in, Sock, self(), {post, Path, PostBody})
+	DataPid(data_in, Sock, self(), {post, Path, PostBody, HeaderList})
 	%5秒后自动断开链接
 	%%[2019-11-21]%% erlang:send_after(?disconnect_time, self(), "honk honk"),
 	%%[2019-11-21]%% proc_lib:hibernate(?MODULE, resume, [Sock])
