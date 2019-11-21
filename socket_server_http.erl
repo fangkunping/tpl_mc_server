@@ -1,5 +1,8 @@
-%	版本 g2-1.0.5
+%	版本 g2-1.0.7
 %	版本更新说明：
+%	【2019-11-21】g2-1.0.7版本修改
+%	取消resume函数，及自身模块的超时。 
+%	如果 MessagePid 传入 nil 则不发送提示信息
 %	【2013-12-13】g2-1.0.6版本修改
 %	增加resume函数，仅仅给自身模块使用，用于网页访问超时, 30秒超时。 
 %	【2011-04-20】g2-1.0.5版本修改
@@ -53,7 +56,10 @@
 -export([ver/0]).
 
 % 连接自动断开时间, 毫秒
--define(disconnect_time, 5000).
+%%[2019-11-21]%% -define(disconnect_time, 5000).
+
+% 接收数据超时时间, 毫秒
+-define(TCP_RECV_TIMEOUT, 5000).
 
 ver() ->
     'g2-1.0.6'
@@ -63,7 +69,7 @@ start() ->
 	start(8296)
 .
 start(Port) ->
-	start(Port, fun undef_f/3)
+	start(Port, fun undef_f/4)
 .
 start(Port, DataPid) ->
 	start(Port, DataPid, 0)
@@ -82,7 +88,7 @@ start(Port, DataPid, MessagePid, PNum) ->
             %%{nodelay,true},
             {reuseaddr, true}]) of
 		{error, Reason} ->
-			MessagePid ! {error, "Listen error", Reason};
+			send_info_message(MessagePid, {error, "Listen error", Reason});
 		{ok, Listen} -> 
 			case PNum of
 				0 ->
@@ -94,27 +100,33 @@ start(Port, DataPid, MessagePid, PNum) ->
 	end
 .
 
+send_info_message(nil, _) ->
+	ok
+;
+send_info_message(MessagePid, V) ->
+	MessagePid ! V
+.
 
 par_connect(Listen, DataPid, MessagePid, Port) ->
 	{Any, Socket} = gen_tcp:accept(Listen),
 	case {Any, Socket} of
 		{ok, Socket} ->
-			MessagePid ! {msg, "Socket connected", Socket},
+			send_info_message(MessagePid, {msg, "Socket connected", Socket, self()}),
 			spawn(fun() -> par_connect(Listen, DataPid, MessagePid, Port) end),
 			loop(Socket, DataPid, MessagePid, Port) ;
 		{error, Reason} ->
 			spawn(fun() -> par_connect(Listen, DataPid, MessagePid, Port) end),
-			MessagePid ! {error, "Socket connect error", Reason}
+			send_info_message(MessagePid, {error, "Socket connect error", Reason})
 	end
 .
 
 loop(Socket, DataPid, MessagePid, Port) ->
-	case gen_tcp:recv(Socket, 0, 60000) of
+	case gen_tcp:recv(Socket, 0, ?TCP_RECV_TIMEOUT) of
 		{ok, Packet} ->
 			%% io:format("HttpPacket:~p ~n",[Packet] ),
 			handle_request(Socket, Port, Packet, DataPid);
 		{error, closed} ->
-			MessagePid ! {msg, "socket closed", Socket};
+			send_info_message(MessagePid, {msg, "socket closed", Socket});
 		X -> io:format("unknown_message:~p~n",[X])
 	end
 .
@@ -173,18 +185,20 @@ handle_request (Socket, Port, HttpPacket, DataPid)->
 .
 
 get_content_length(Sock) ->
-	case gen_tcp:recv(Sock, 0, 60000) of
+	case gen_tcp:recv(Sock, 0, ?TCP_RECV_TIMEOUT) of
 		{ok, {http_header, _, 'Content-Length', _, Length}} -> list_to_integer(Length);
 		{error, Reason} -> io:format("http_server get_content_length error: ~p ~n",[Reason] );
-		_  -> get_content_length(Sock)
+		_  ->
+			%% io:format("http_server get_content_length x: ~p ~n",[X] ),
+			get_content_length(Sock)
 	end
 .
 
 get_body(Sock, Length) ->
-	case gen_tcp:recv(Sock, 0, 60000) of
+	case gen_tcp:recv(Sock, 0, ?TCP_RECV_TIMEOUT) of
 		{ok, http_eoh} -> 
 			inet:setopts(Sock, [{packet, raw}]),
-			case gen_tcp:recv(Sock, Length, 60000) of
+			case gen_tcp:recv(Sock, Length, ?TCP_RECV_TIMEOUT) of
 				{ok,Body} ->
 					Body;
 				{error, Reason} -> io:format("http_server get_body error_sub: ~p ~n",[Reason] )
@@ -195,7 +209,7 @@ get_body(Sock, Length) ->
 	end
 .
 get_end(Sock)->
-	case gen_tcp:recv(Sock, 0, 60000) of
+	case gen_tcp:recv(Sock, 0, ?TCP_RECV_TIMEOUT) of
 		{ok, http_eoh} -> done;
 		{error, Reason} -> io:format("http_server get_end error: ~p ~n",[Reason] );
 		_ -> get_end(Sock)
@@ -204,10 +218,10 @@ get_end(Sock)->
 
 handle_get(Sock, _Port, DataPid, Value) ->
 	get_end(Sock),
-	DataPid(data_in, Sock, self(), Value),
+	DataPid(data_in, Sock, self(), Value)
 	%5秒后自动断开链接
-	erlang:send_after(?disconnect_time, self(), "honk honk"),
-	proc_lib:hibernate(?MODULE, resume, [Sock])
+	%%[2019-11-21]%% erlang:send_after(?disconnect_time, self(), "honk honk"),
+	%%[2019-11-21]%% proc_lib:hibernate(?MODULE, resume, [Sock])
 .
 resume(Socket) ->
 	receive
@@ -223,13 +237,16 @@ resume(Socket) ->
 .
 handle_post(Sock, _Port, DataPid, Path) ->
 	Length=get_content_length(Sock),
-	PostBody=get_body(Sock, Length),
+	PostBody=case Length of
+		0 -> "";
+		_ -> get_body(Sock, Length)
+	end,
 	%%io:format("PostBody :~p~n",[PostBody]),
 	%%io:format("Path :~p~n",[Path]),
-	DataPid(data_in, Sock, self(), {post, Path, PostBody}),
+	DataPid(data_in, Sock, self(), {post, Path, PostBody})
 	%5秒后自动断开链接
-	erlang:send_after(?disconnect_time, self(), "honk honk"),
-	proc_lib:hibernate(?MODULE, resume, [Sock])
+	%%[2019-11-21]%% erlang:send_after(?disconnect_time, self(), "honk honk"),
+	%%[2019-11-21]%% proc_lib:hibernate(?MODULE, resume, [Sock])
 	%% spawn(fun() -> DataPid(Sock, Port, {post, Path, PostBody}) end)
 	%% send_accept(Sock)
 .
@@ -246,8 +263,8 @@ send_unsupported_error(Sock) ->
 	gen_tcp:close(Sock)
 .	
 
-undef_f(Socket, Port, Bin) ->
-	io:format("Coming: Socket:~p~n Port:~p~n Bin:~p~n",[Socket, Port, Bin] ),
+undef_f(data_in, Socket, SocketPid, Bin) ->
+	io:format("Coming: Socket:~p~n Port:~p~n Bin:~p~n",[Socket, SocketPid, Bin] ),
 	send_accept(Socket)
 .
 
@@ -256,8 +273,8 @@ undef_output() ->
 		{error, "Listen error", Reason} ->
 			io:format("Listen error: ~p~n",[Reason]),
 			undef_output();
-		{msg, "Socket connected", Socket} ->
-			io:format("Socket connected: ~p~n",[Socket]),
+		{msg, "Socket connected", Socket, Pid} ->
+			io:format("Socket connected: ~p ~p~n",[Socket, Pid]),
 			undef_output();
 		{msg, "socket closed", Socket} ->
 			io:format("socket closed: ~p~n",[Socket]),
