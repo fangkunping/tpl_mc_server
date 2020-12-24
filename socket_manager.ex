@@ -1,6 +1,7 @@
-defmodule GuaJi.WebSocketManager do
+# package apps.middle_controller.lib.manager;
+defmodule MiddleController.Manager.SocketManager do
   use GenServer
-  alias GuaJi.WebSocketManager, as: State
+  alias MiddleController.Manager.SocketManager, as: State
   defstruct [:port, :listen]
 
   # Client
@@ -11,14 +12,16 @@ defmodule GuaJi.WebSocketManager do
 
   # 发送信息
   def send_msg(socket, msg, set_active? \\ false) do
-    :gen_tcp.send(socket, :socket_server_ws.encode(msg))
+    :gen_tcp.send(socket, msg)
+
     if set_active? do
       active(socket)
     end
   end
 
   def send_msg_by(msg, socket, set_active? \\ false) do
-    :gen_tcp.send(socket, :socket_server_ws.encode(msg))
+    :gen_tcp.send(socket, msg)
+
     if set_active? do
       active(socket)
     end
@@ -37,46 +40,27 @@ defmodule GuaJi.WebSocketManager do
     socket |> close
   end
 
-  # 信息次序 3
-  # websocket 请求的数据
-  def socket_data_in(:data_in, socket, _socket_pid, bin) do
-
-  end
-
   # 信息次序 2
-  # websocket 请求时获得的 链接信息
-  def socket_data_in(:hand_shake, socket, socket_pid, {method, uri, version}) do
-    GenServer.call(__MODULE__, {:hand_shake, socket, socket_pid, {method, uri, version}})
+  # socket 请求数据
+  def socket_data_in(socket, _socket_pid, bin) do
+    IO.inspect(bin)
+    send_msg(socket, bin, true)
   end
 
   # Server (callbacks)
 
   def init(state) do
-    # 需要修改配置文件相关信息
-    websocket_server_conf = Application.get_env(:gua_ji, :websocket_server)
+    socket_server_conf = Application.get_env(:middle_controller, :socket_server_conf)
 
-    :socket_server_ws.start(
-      websocket_server_conf.port,
-      &socket_data_in/4,
+    :socket_server_bit.start(
+      socket_server_conf.port,
+      &socket_data_in/3,
       __MODULE__,
-      websocket_server_conf.pre_start_process
+      socket_server_conf.head_length,
+      socket_server_conf.pre_start_process
     )
 
     {:ok, state}
-  end
-
-  # 握手信息
-  def handle_call(
-        {:hand_shake, socket, _socket_pid, {_method, {:abs_path, request} = uri, _version}},
-        _form,
-        state
-      ) do
-    result = true
-    {:reply, result, state}
-  end
-
-  def handle_call({:hand_shake, _, _, _}, _form, state) do
-    {:reply, false, state}
   end
 
   def handle_call(_, _form, state) do

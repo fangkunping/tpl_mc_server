@@ -1,5 +1,10 @@
-%	版本 g2-1.0.7
+%	版本 g2-1.0.8
 %	版本更新说明：
+%	【2020-12-18】g2-1.0.9版本修改
+%	增加OPTIONS，判断，直接返回固定的结果
+%	【2020-10-23】g2-1.0.8版本修改
+%	修复 post header无法完整获取bug
+%	修复 get header无法获取bug
 %	【2019-11-21】g2-1.0.7版本修改
 %	取消resume函数，及自身模块的超时。 
 %	如果 MessagePid 传入 nil 则不发送提示信息
@@ -63,7 +68,7 @@
 -define(TCP_RECV_TIMEOUT, 5000).
 
 ver() ->
-    'g2-1.0.6'
+    'g2-1.0.9'
 .
 
 start() ->
@@ -175,6 +180,9 @@ handle_request (Socket, Port, HttpPacket, DataPid)->
 							io:format("unknown POST HttpUri: ~p ~n",[HttpMethod] ),
 							send_unsupported_error(Socket)
 					end;
+				'OPTIONS' ->
+						gen_tcp:send(Socket, "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: 12\r\n\r\nhello world!"),
+						gen_tcp:close(Socket);
 				_ ->
 					io:format("unknown HttpMethod: ~p ~n",[HttpMethod] ),
 					send_unsupported_error(Socket)					
@@ -185,42 +193,41 @@ handle_request (Socket, Port, HttpPacket, DataPid)->
 	end
 .
 
-get_content_length(Sock, HeaderList) ->
-	case gen_tcp:recv(Sock, 0, ?TCP_RECV_TIMEOUT) of
-		{ok, {http_header, _, 'Content-Length', _, Length}} -> {list_to_integer(Length), HeaderList};
-		{ok, {http_header, _, Header, _, HeaderValue}} -> get_content_length(Sock, [ {Header, HeaderValue} | HeaderList]);
-		{error, Reason} -> io:format("http_server get_content_length error: ~p ~n",[Reason] );
-		_  ->
-			%% io:format("http_server get_content_length x: ~p ~n",[X] ),
-			get_content_length(Sock, HeaderList)
-	end
-.
 
-get_body(Sock, Length) ->
+get_body(Sock, Length, HeaderList) ->
 	case gen_tcp:recv(Sock, 0, ?TCP_RECV_TIMEOUT) of
+		{ok, {http_header, _, 'Content-Length', _, NewLength}} -> get_body(Sock, list_to_integer(NewLength), HeaderList);
+		{ok, {http_header, _, Header, _, HeaderValue}} -> get_body(Sock, Length, [ {Header, HeaderValue} | HeaderList]);
 		{ok, http_eoh} -> 
-			inet:setopts(Sock, [{packet, raw}]),
-			case gen_tcp:recv(Sock, Length, ?TCP_RECV_TIMEOUT) of
-				{ok,Body} ->
-					Body;
-				{error, Reason} -> io:format("http_server get_body error_sub: ~p ~n",[Reason] )
+			case Length of
+				0 -> {"", Length, HeaderList};
+				_ -> inet:setopts(Sock, [{packet, raw}]),
+					case gen_tcp:recv(Sock, Length, ?TCP_RECV_TIMEOUT) of
+						{ok,Body} ->
+							{Body, Length, HeaderList};
+						{error, Reason} -> io:format("http_server get_body error_sub: ~p ~n",[Reason] )
+					end
 			end;
+			
 			%% inet:setopts(Sock, [{packet, raw}]),{ok,Body}=gen_tcp:recv(Sock, Length, 60000),	Body;
 		{error, Reason} -> io:format("http_server get_body error: ~p ~n",[Reason] );
-		_ -> get_body(Sock, Length)
+		X  ->
+			io:format("http_server get_content_length x: ~p ~n",[X] ),
+		 	get_body(Sock, Length, HeaderList)
 	end
 .
-get_end(Sock)->
+get_end(Sock, HeaderList)->
 	case gen_tcp:recv(Sock, 0, ?TCP_RECV_TIMEOUT) of
-		{ok, http_eoh} -> done;
+		{ok, {http_header, _, Header, _, HeaderValue}} -> get_end(Sock, [ {Header, HeaderValue} | HeaderList]);
+		{ok, http_eoh} -> HeaderList;
 		{error, Reason} -> io:format("http_server get_end error: ~p ~n",[Reason] );
-		_ -> get_end(Sock)
+		_ -> get_end(Sock, HeaderList)
 	end
 .
 
-handle_get(Sock, _Port, DataPid, Value) ->
-	get_end(Sock),
-	DataPid(data_in, Sock, self(), Value)
+handle_get(Sock, _Port, DataPid, {get, Path, Query, _}) ->
+	HeaderList = get_end(Sock, []),
+	DataPid(data_in, Sock, self(), {get, Path, Query, HeaderList})
 	%5秒后自动断开链接
 	%%[2019-11-21]%% erlang:send_after(?disconnect_time, self(), "honk honk"),
 	%%[2019-11-21]%% proc_lib:hibernate(?MODULE, resume, [Sock])
@@ -238,11 +245,12 @@ resume(Socket) ->
 	end
 .
 handle_post(Sock, _Port, DataPid, Path) ->
-	{Length, HeaderList}=get_content_length(Sock, []),
-	PostBody=case Length of
-		0 -> "";
-		_ -> get_body(Sock, Length)
-	end,
+	% {Length, HeaderList}=get_content_length(Sock, []),
+	% PostBody=case Length of
+	% 	0 -> "";
+	% 	_ -> get_body(Sock, Length, HeaderList)
+	% end,
+	{PostBody, _Length, HeaderList} = get_body(Sock, 0, []),
 	%%io:format("PostBody :~p~n",[PostBody]),
 	%%io:format("Path :~p~n",[Path]),
 	DataPid(data_in, Sock, self(), {post, Path, PostBody, HeaderList})

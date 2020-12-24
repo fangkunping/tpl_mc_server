@@ -6,7 +6,7 @@ defmodule Dapi.HttpSocketManager do
   # Client
 
   def init_self() do
-    # 获取配置文件
+    # 需要修改配置文件相关信息
     websocket_server_conf = Application.get_env(:dapi, :http_socket_server)
     # 启动 http
     :socket_server_http.start(

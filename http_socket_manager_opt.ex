@@ -9,7 +9,7 @@ defmodule Dapi.HttpSocketManager do
   @content_type_json 'application/json'
   # Client
 
-  def init_self() do
+  def start_link(default_state) do
     GenServer.start_link(__MODULE__, default_state, [{:name, __MODULE__}])
   end
 
@@ -72,9 +72,11 @@ defmodule Dapi.HttpSocketManager do
 
   def decode(_, data) do
     data
+  end
   # Server (callbacks)
 
   def init(state) do
+    # 需要修改配置文件相关信息
     websocket_server_conf = Application.get_env(:dapi, :http_socket_server)
 
     :socket_server_http.start(
