@@ -25,7 +25,7 @@
 %	
 %	delete_socket(Socket, Port) 断开某一socket 
 
--module(socket_server_ws).
+-module(socket_server_wss).
 -export([start/0, start/1, start/2, start/3, start/4]).
 -export([encode/1, encode_with_mask/1]).
 -export([ver/0]).
@@ -47,7 +47,13 @@ start(Port, DataPid, MessagePid) ->
 	start(Port, DataPid, MessagePid, 0)
 .
 start(Port, DataPid, MessagePid, PNum) ->
-	case gen_tcp:listen(Port, [binary, {packet, 0}, {packet_size, 80000000}, {reuseaddr, true},{active, once},{delay_send, true},{send_timeout, 5000},{sndbuf, 16 * 1024},{recbuf, 16 * 1024},{high_watermark, 128 * 1024}, {low_watermark, 64 * 1024}]) of
+	ssl:start(),
+	case ssl:listen(Port, [
+		{certfile, "C:\\Users\\Administrator\\Downloads\\1480091f9d0af64a.pem"}, 
+		{keyfile, "C:\\Users\\Administrator\\Downloads\\generated-private-key-milestonepms.txt"}, 
+		binary, {packet, 0}, {packet_size, 80000000}, {reuseaddr, true},{active, once},
+		{delay_send, true},{send_timeout, 5000},{sndbuf, 16 * 1024},{recbuf, 16 * 1024},
+		{high_watermark, 128 * 1024}, {low_watermark, 64 * 1024}]) of
 	% case gen_tcp:listen(Port, [binary, {packet, 0}, {packet_size, 80000000}, {reuseaddr, true},{active, once},{nodelay, true},{send_timeout, 5000}]) of
 		{error, Reason} ->
 			MessagePid ! {error, "Listen error", Reason};
@@ -80,15 +86,28 @@ start(Port, DataPid, MessagePid, PNum) ->
 %.
 
 par_connect(Listen, DataPid, MessagePid, Port) ->
-	{Any, Socket} = gen_tcp:accept(Listen),
-	case {Any, Socket} of
-		{ok, Socket} ->
-			MessagePid ! {msg, "Socket connected", Socket, self()},
-			spawn(fun() -> par_connect(Listen, DataPid, MessagePid, Port) end),
-			loop(Socket, DataPid, MessagePid, Port, <<>>, false);
+	{Any, TLSTransportSocket} = ssl:transport_accept(Listen),
+	SuccessFn = fun(Socket) ->
+		MessagePid ! {msg, "Socket connected", Socket, self()},
+		spawn(fun() -> par_connect(Listen, DataPid, MessagePid, Port) end),
+		loop(Socket, DataPid, MessagePid, Port, <<>>, false)
+	end,
+	FailFn = fun(Reason) ->
+		spawn(fun() -> par_connect(Listen, DataPid, MessagePid, Port) end),
+		MessagePid ! {error, "Socket connect error", Reason}
+	end,
+	case {Any, TLSTransportSocket} of
+		{ok, TLSTransportSocket} ->
+			case ssl:handshake(TLSTransportSocket) of
+				{ok, SSLSocket} -> 
+					SuccessFn(SSLSocket);
+				{ok, SSLSocket, _Ext} ->
+					SuccessFn(SSLSocket);
+				{error, Reason} ->
+					FailFn(Reason)
+			end;
 		{error, Reason} ->
-			spawn(fun() -> par_connect(Listen, DataPid, MessagePid, Port) end),
-			MessagePid ! {error, "Socket connect error", Reason}
+			FailFn(Reason)
 	end
 .
 
@@ -96,7 +115,7 @@ par_connect(Listen, DataPid, MessagePid, Port) ->
 
 loop(Socket, DataPid, MessagePid, Port, Lave, IsHandshaked) ->
 	receive
-		{tcp, Socket, Bin} ->
+		{ssl, Socket, Bin } ->
 			%io:format("Bin:~p~n", [Bin]),
 			case IsHandshaked of
 				true ->					
@@ -126,8 +145,8 @@ loop(Socket, DataPid, MessagePid, Port, Lave, IsHandshaked) ->
 										base64:encode_to_string(crypto:hash(sha, <<BinaryClientKey/binary, "258EAFA5-E914-47DA-95CA-C5AB0DC85B11">>)),
 										"\r\n\r\n"
 									],
-									gen_tcp:send(Socket, HandShake),
-									inet:setopts(Socket,[{active,once}]),
+									ssl:send(Socket, HandShake),
+									ssl:setopts(Socket,[{active,once}]),
 									loop(Socket, DataPid, MessagePid, Port, Lave, true);
 								false ->
 									MessagePid ! {msg, "socket closed", Socket}
@@ -140,9 +159,9 @@ loop(Socket, DataPid, MessagePid, Port, Lave, IsHandshaked) ->
 		{self, Value} ->
 			send_to_func([Value], Socket, DataPid, Port),
 			loop(Socket, DataPid, MessagePid, Port, Lave, IsHandshaked);
-		{tcp_closed, Socket} ->
+		{ssl_closed, Socket} ->
 		 	MessagePid ! {msg, "socket closed", Socket};
-		{tcp_error, Socket, Reason} ->
+		{ssl_error, Socket, Reason} ->
 		 	io:format("Sockt error:~p~n",[Reason]),
 		 	MessagePid ! {msg, "socket closed", Socket};
 		X -> 
@@ -370,8 +389,8 @@ undef_f(http_request, _Method, Uri, _Version) ->
 undef_f(data_in, Socket, Port, Bin) ->
 	io:format("Coming: Socket:~p~n Port:~p~n Bin:~p~n",[Socket, Port, Bin] ),
 	io:format("Outing Message: ~p~n", [encode(<<"I got your message">>)] ),
-	gen_tcp:send(Socket, encode(<<"I got your message">>)),
-	inet:setopts(Socket,[{active,once}])
+	ssl:send(Socket, encode(<<"I got your message">>)),
+	ssl:setopts(Socket,[{active,once}])
 .
 
 undef_output() ->

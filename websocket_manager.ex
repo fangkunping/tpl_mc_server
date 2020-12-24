@@ -1,6 +1,8 @@
-defmodule GuaJi.WebSocketManager do
+# package apps.middle_controller.lib.manager;
+defmodule MiddleController.Manager.WebSocketManager do
   use GenServer
-  alias GuaJi.WebSocketManager, as: State
+  alias MiddleController.Manager.WebSocketManager, as: State
+  alias MiddleController.Action.WebsocketAction
   defstruct [:port, :listen]
 
   # Client
@@ -11,22 +13,30 @@ defmodule GuaJi.WebSocketManager do
 
   # 发送信息
   def send_msg(socket, msg, set_active? \\ false) do
-    :gen_tcp.send(socket, :socket_server_ws.encode(msg))
+    send_to(socket, :socket_server_ws.encode(msg))
+
     if set_active? do
       active(socket)
     end
   end
 
   def send_msg_by(msg, socket, set_active? \\ false) do
-    :gen_tcp.send(socket, :socket_server_ws.encode(msg))
-    if set_active? do
-      active(socket)
+    send_msg(socket, msg, set_active?)
+  end
+
+  defp send_to(socket, message) do
+    case MiddleController.Tools.ConfigUtil.use_wss?() do
+      true ->
+        :ssl.send(socket, message)
+
+      false ->
+        :gen_tcp.send(socket, message)
     end
   end
 
   # 激活状态
   def active(socket) do
-    :inet.setopts(socket, [{:active, :once}])
+    :ssl.setopts(socket, [{:active, :once}])
   end
 
   def close(socket) do
@@ -40,7 +50,11 @@ defmodule GuaJi.WebSocketManager do
   # 信息次序 3
   # websocket 请求的数据
   def socket_data_in(:data_in, socket, _socket_pid, bin) do
+    # IO.inspect(bin)
 
+    WebsocketAction.run(socket, KunERAUQS.D0_f.json_decode(bin))
+    # send_msg(socket, bin, true)
+    active(socket)
   end
 
   # 信息次序 2
@@ -52,27 +66,44 @@ defmodule GuaJi.WebSocketManager do
   # Server (callbacks)
 
   def init(state) do
-    # 需要修改配置文件相关信息
-    websocket_server_conf = Application.get_env(:gua_ji, :websocket_server)
+    websocket_server_conf = Application.get_env(:middle_controller, :websocket_server_conf)
+    case MiddleController.Tools.ConfigUtil.use_wss?() do
+      true ->
+        :socket_server_wss.start(
+          websocket_server_conf.port,
+          &socket_data_in/4,
+          __MODULE__,
+          websocket_server_conf.pre_start_process
+        )
 
-    :socket_server_ws.start(
-      websocket_server_conf.port,
-      &socket_data_in/4,
-      __MODULE__,
-      websocket_server_conf.pre_start_process
-    )
+      false ->
+        :socket_server_ws.start(
+          websocket_server_conf.port,
+          &socket_data_in/4,
+          __MODULE__,
+          websocket_server_conf.pre_start_process
+        )
+    end
 
     {:ok, state}
   end
 
   # 握手信息
   def handle_call(
-        {:hand_shake, socket, _socket_pid, {_method, {:abs_path, request} = uri, _version}},
+        {:hand_shake, socket, _socket_pid, {_method, {:abs_path, request}, _version}},
         _form,
         state
       ) do
-    result = true
-    {:reply, result, state}
+    IO.inspect(request)
+
+    case WebsocketAction.do_hand_shake(request) do
+      true ->
+        WebsocketAction.add_socket(request, socket)
+        {:reply, true, state}
+
+      _ ->
+        {:reply, false, state}
+    end
   end
 
   def handle_call({:hand_shake, _, _, _}, _form, state) do
@@ -84,14 +115,15 @@ defmodule GuaJi.WebSocketManager do
   end
 
   # 信息次序 1
-  def handle_info({:msg, 'Socket connected', socket, pid}, state) do
-    :io.format("Socket connected: ~p ~p~n", [socket, pid])
+  def handle_info({:msg, 'Socket connected', _socket, _pid}, state) do
+    # :io.format("Socket connected: ~p ~p~n", [socket, pid])
     {:noreply, state}
   end
 
   # 信息次序 4
   def handle_info({:msg, 'socket closed', socket}, state) do
-    :io.format("socket closed: ~p~n", [socket])
+    # :io.format("socket closed: ~p~n", [socket])
+    WebsocketAction.remove_socket(socket)
     {:noreply, state}
   end
 

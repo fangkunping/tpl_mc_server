@@ -11,7 +11,7 @@ defmodule MiddleController.Manager.SocketManager do
   end
 
   # 发送信息
-  def send_msg(socket, msg, set_active? \\ false) do
+  def send_to(socket, msg, set_active? \\ false) do
     :gen_tcp.send(socket, msg)
 
     if set_active? do
@@ -19,7 +19,7 @@ defmodule MiddleController.Manager.SocketManager do
     end
   end
 
-  def send_msg_by(msg, socket, set_active? \\ false) do
+  def send_by(msg, socket, set_active? \\ false) do
     :gen_tcp.send(socket, msg)
 
     if set_active? do
@@ -41,10 +41,10 @@ defmodule MiddleController.Manager.SocketManager do
   end
 
   # 信息次序 2
-  # socket 请求数据
+  # websocket 请求数据
   def socket_data_in(socket, _socket_pid, bin) do
     IO.inspect(bin)
-    send_msg(socket, bin, true)
+    send_to(socket, bin, true)
   end
 
   # Server (callbacks)

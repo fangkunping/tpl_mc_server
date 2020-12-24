@@ -53,7 +53,7 @@
 %	delete_socket(Socket, Port) 断开某一socket 
 
 -module(socket_server_bit).
--export([start/0, start/1, start/2, start/3, start/4, start/5, stop/0, stop/1, delete_socket/2, delete_socket_by_string/2]).
+-export([start/0, start/1, start/2, start/3, start/4, start/5]).
 -export([ver/0]).
 
 ver() ->
@@ -80,9 +80,7 @@ start(Port, DataPid, MessagePid, HeadLength, PNum) ->
 		{error, Reason} ->
 			MessagePid ! {error, "Listen error", Reason};
 		{ok, Listen} -> 
-			kvs:start(),
-			ETSid = ets:new( list_to_atom(atom_to_list(?MODULE)++integer_to_list(Port)) , [set, public]),
-			kvs:store({d0, ?MODULE, Port}, [ETSid, Listen]),
+			MessagePid ! {ok, "Listen ok", Port, Listen},
 			case PNum of
 				0 ->
 					spawn(fun() -> par_connect(Listen, DataPid, MessagePid, Port) end);
@@ -93,57 +91,44 @@ start(Port, DataPid, MessagePid, HeadLength, PNum) ->
 	end
 .
 
-stop() ->
-	stop(8296)
-.
+% delete_all_socket([H|T]) ->
+% 	{Socket} = H,
+% 	gen_tcp:close(Socket),
+% 	delete_all_socket(T)
+% ;
+% delete_all_socket([]) ->
+% 	ok
+% .
 
-stop(Port) ->
-	{ok, [ETSid, Listen]} = kvs:delete({d0, ?MODULE, Port}),
-	gen_tcp:close(Listen),
-	SockList = ets:tab2list(ETSid),
-	delete_all_socket(SockList)
-.
+% delete_socket(Socket, Port)->
+% 	{ok, [ETSid, _]} = kvs:lookup({d0, ?MODULE, Port}),
+% 	ets:delete(ETSid, Socket),
+% 	gen_tcp:close(Socket)
+% .
 
-delete_all_socket([H|T]) ->
-	{Socket} = H,
-	gen_tcp:close(Socket),
-	delete_all_socket(T)
-;
-delete_all_socket([]) ->
-	ok
-.
-
-delete_socket(Socket, Port)->
-	{ok, [ETSid, _]} = kvs:lookup({d0, ?MODULE, Port}),
-	ets:delete(ETSid, Socket),
-	gen_tcp:close(Socket)
-.
-
-delete_socket_by_string(SocketString, Port)->
-	{ok, [ETSid, _]} = kvs:lookup({d0, ?MODULE, Port}),
-	delete_socket_by_list2(ets:tab2list(ETSid), SocketString, ETSid)
-.
-delete_socket_by_list2([H|T], SocketString, ETSid) ->
-	{Socket} = H,
-	case erlang:port_to_list(Socket) of
-		SocketString ->
-			ets:delete(ETSid, Socket),
-			gen_tcp:close(Socket);
-		_ ->
-			delete_socket_by_list2(T, SocketString, ETSid)
-	end
-;
-delete_socket_by_list2([], _, _) ->
-	done
-.
+% delete_socket_by_string(SocketString, Port)->
+% 	{ok, [ETSid, _]} = kvs:lookup({d0, ?MODULE, Port}),
+% 	delete_socket_by_list2(ets:tab2list(ETSid), SocketString, ETSid)
+% .
+% delete_socket_by_list2([H|T], SocketString, ETSid) ->
+% 	{Socket} = H,
+% 	case erlang:port_to_list(Socket) of
+% 		SocketString ->
+% 			ets:delete(ETSid, Socket),
+% 			gen_tcp:close(Socket);
+% 		_ ->
+% 			delete_socket_by_list2(T, SocketString, ETSid)
+% 	end
+% ;
+% delete_socket_by_list2([], _, _) ->
+% 	done
+% .
 
 par_connect(Listen, DataPid, MessagePid, Port) ->
 	{Any, Socket} = gen_tcp:accept(Listen),
 	case {Any, Socket} of
 		{ok, Socket} ->
-			{ok, [ETSid, Listen]} = kvs:lookup({d0, ?MODULE, Port}),
-			ets:insert(ETSid, {Socket}),
-			MessagePid ! {msg, "Socket connected", Socket},
+			MessagePid ! {msg, "Socket connected", Socket, self()},
 			spawn(fun() -> par_connect(Listen, DataPid, MessagePid, Port) end),
 			loop(Socket, DataPid, MessagePid, Port);
 		{error, Reason} ->
@@ -157,26 +142,18 @@ loop(Socket, DataPid, MessagePid, Port) ->
 		{tcp, Socket, Bin} ->
 			%% public hide io:format("Server Bin:~p ~n",[Bin] ),
 			%spawn(fun() -> DataPid(Socket, Port, Bin) end),
-			DataPid(Socket, Port, Bin),
+			DataPid(Socket, self(), Bin),
 			loop(Socket, DataPid, MessagePid, Port);
 		{tcp_closed, Socket} ->
-			{ok, [ETSid, _]} = kvs:lookup({d0, ?MODULE, Port}),
-			MessagePid ! {msg, "socket closed", Socket},
-			ets:delete(ETSid, Socket);
+			MessagePid ! {msg, "socket closed", Socket};
 		{tcp_error, Socket, Reason} ->
-			{ok, [ETSid, _]} = kvs:lookup({d0, ?MODULE, Port}),
 			MessagePid ! {msg, "socket closed", Socket},
-			io:format("Sockt error:~p~n",[Reason]),
-			ets:delete(ETSid, Socket);
+			io:format("Sockt error:~p~n",[Reason]);
 		X -> 
-			{ok, [ETSid, _]} = kvs:lookup({d0, ?MODULE, Port}),
 			MessagePid ! {msg, "socket closed", Socket},
-			ets:delete(ETSid, Socket),
 			io:format("[socket_server_bit] unknown_message:~p~n",[X])
 	after 600000 -> %% 十分钟没有数据自动关闭链接
-		{ok, [ETSid, _]} = kvs:lookup({d0, ?MODULE, Port}),
 		MessagePid ! {msg, "socket closed", Socket},
-		ets:delete(ETSid, Socket),	
 		io:format("[socket_server_bit] socket no data time out!:~p~n",[Socket])
 	end
 .
