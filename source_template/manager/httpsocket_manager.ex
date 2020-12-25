@@ -16,18 +16,38 @@ defmodule MiddleController.Manager.HttpSocketManager do
 
   # 发送信息
   def send_to(socket, msg, header \\ @content_type_text) do
-    :gen_tcp.send(
+    send_to_tcp(
       socket,
       "#{@header_common}\r\nContent-Type: #{header}; charset=utf-8\r\nContent-Length: #{
         :erlang.size(msg)
       }\r\n\r\n#{msg}"
     )
-
-    :gen_tcp.close(socket)
   end
 
   def send_by(msg, socket, header \\ @content_type_text) do
     send_to(socket, msg, header)
+  end
+
+  defp send_to_tcp(socket, message) do
+    case MiddleController.Tools.ConfigUtil.use_https?() do
+      true ->
+        :ssl.send(socket, message)
+        :ssl.close(socket)
+
+      false ->
+        :gen_tcp.send(socket, message)
+        :gen_tcp.close(socket)
+    end
+  end
+
+  defp get_peername(socket) do
+    case MiddleController.Tools.ConfigUtil.use_https?() do
+      true ->
+        :ssl.peername(socket)
+
+      false ->
+        :inet.peername(socket)
+    end
   end
 
   # http 来的 数据
@@ -40,7 +60,7 @@ defmodule MiddleController.Manager.HttpSocketManager do
     IO.inspect({:post, path, post_body, headers})
     IO.inspect(get_content_type(headers) |> decode(post_body))
     # 获取 来源的ip和端口
-    IO.inspect(:inet.peername(socket))
+    IO.inspect(get_peername(socket))
 
     response =
       MiddleController.Action.HttpAction.run(
@@ -58,7 +78,7 @@ defmodule MiddleController.Manager.HttpSocketManager do
     IO.inspect({:get, path, value, headers})
     IO.inspect(get_content_type(headers) |> decode(value))
     # 获取 来源的ip和端口
-    IO.inspect(:inet.peername(socket))
+    IO.inspect(get_peername(socket))
     send_to(socket, KunERAUQS.D0_f.json_encode(%{code: 0, data: "ok"}), @content_type_json)
   end
 
@@ -89,12 +109,25 @@ defmodule MiddleController.Manager.HttpSocketManager do
   def init(state) do
     http_server_conf = Application.get_env(:middle_controller, :http_server_conf)
 
-    :socket_server_http.start(
-      http_server_conf.port,
-      &socket_data_in/4,
-      __MODULE__,
-      http_server_conf.pre_start_process
-    )
+    case MiddleController.Tools.ConfigUtil.use_https?() do
+      true ->
+        :socket_server_https.start(
+          http_server_conf.port,
+          &socket_data_in/4,
+          __MODULE__,
+          http_server_conf.pre_start_process,
+          MiddleController.Tools.ConfigUtil.https_certfile(),
+          MiddleController.Tools.ConfigUtil.https_keyfile()
+        )
+
+      false ->
+        :socket_server_http.start(
+          http_server_conf.port,
+          &socket_data_in/4,
+          __MODULE__,
+          http_server_conf.pre_start_process
+        )
+    end
 
     {:ok, state}
   end

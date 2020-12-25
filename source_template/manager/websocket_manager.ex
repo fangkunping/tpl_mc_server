@@ -36,7 +36,13 @@ defmodule MiddleController.Manager.WebSocketManager do
 
   # 激活状态
   def active(socket) do
-    :ssl.setopts(socket, [{:active, :once}])
+    case MiddleController.Tools.ConfigUtil.use_wss?() do
+      true ->
+        :ssl.setopts(socket, [{:active, :once}])
+
+      false ->
+        :inet.setopts(socket, [{:active, :once}])
+    end
   end
 
   def close(socket) do
@@ -67,13 +73,16 @@ defmodule MiddleController.Manager.WebSocketManager do
 
   def init(state) do
     websocket_server_conf = Application.get_env(:middle_controller, :websocket_server_conf)
+
     case MiddleController.Tools.ConfigUtil.use_wss?() do
       true ->
         :socket_server_wss.start(
           websocket_server_conf.port,
           &socket_data_in/4,
           __MODULE__,
-          websocket_server_conf.pre_start_process
+          websocket_server_conf.pre_start_process,
+          MiddleController.Tools.ConfigUtil.wss_certfile(),
+          MiddleController.Tools.ConfigUtil.wss_keyfile()
         )
 
       false ->

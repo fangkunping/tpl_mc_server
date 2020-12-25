@@ -26,7 +26,7 @@
 %	delete_socket(Socket, Port) 断开某一socket 
 
 -module(socket_server_wss).
--export([start/0, start/1, start/2, start/3, start/4]).
+-export([start/0, start/1, start/2, start/3, start/6]).
 -export([encode/1, encode_with_mask/1]).
 -export([ver/0]).
 
@@ -44,13 +44,13 @@ start(Port, DataPid) ->
 	start(Port, DataPid, spawn(fun() -> undef_output() end))
 .
 start(Port, DataPid, MessagePid) ->
-	start(Port, DataPid, MessagePid, 0)
+	start(Port, DataPid, MessagePid, 0, nil, nil)
 .
-start(Port, DataPid, MessagePid, PNum) ->
+start(Port, DataPid, MessagePid, PNum, Certfile, Keyfile) ->
 	ssl:start(),
 	case ssl:listen(Port, [
-		{certfile, "C:\\Users\\Administrator\\Downloads\\1480091f9d0af64a.pem"}, 
-		{keyfile, "C:\\Users\\Administrator\\Downloads\\generated-private-key-milestonepms.txt"}, 
+		{certfile, Certfile}, 
+		{keyfile, Keyfile}, 
 		binary, {packet, 0}, {packet_size, 80000000}, {reuseaddr, true},{active, once},
 		{delay_send, true},{send_timeout, 5000},{sndbuf, 16 * 1024},{recbuf, 16 * 1024},
 		{high_watermark, 128 * 1024}, {low_watermark, 64 * 1024}]) of
