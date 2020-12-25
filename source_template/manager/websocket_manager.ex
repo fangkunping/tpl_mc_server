@@ -1,6 +1,7 @@
 # package apps.middle_controller.lib.manager;
 defmodule MiddleController.Manager.WebSocketManager do
   use GenServer
+  alias MiddleController.Manager.ConfigManager, as: ConfigManager
   alias MiddleController.Manager.WebSocketManager, as: State
   alias MiddleController.Action.WebsocketAction
   defstruct [:port, :listen]
@@ -25,7 +26,7 @@ defmodule MiddleController.Manager.WebSocketManager do
   end
 
   defp send_to(socket, message) do
-    case MiddleController.Tools.ConfigUtil.use_wss?() do
+    case ConfigManager.websocket_server_conf(:tls?) do
       true ->
         :ssl.send(socket, message)
 
@@ -36,7 +37,7 @@ defmodule MiddleController.Manager.WebSocketManager do
 
   # 激活状态
   def active(socket) do
-    case MiddleController.Tools.ConfigUtil.use_wss?() do
+    case ConfigManager.websocket_server_conf(:tls?) do
       true ->
         :ssl.setopts(socket, [{:active, :once}])
 
@@ -58,7 +59,7 @@ defmodule MiddleController.Manager.WebSocketManager do
   def socket_data_in(:data_in, socket, _socket_pid, bin) do
     # IO.inspect(bin)
 
-    WebsocketAction.run(socket, KunERAUQS.D0_f.json_decode(bin))
+    WebsocketAction.run(socket, bin)
     # send_msg(socket, bin, true)
     active(socket)
   end
@@ -74,15 +75,15 @@ defmodule MiddleController.Manager.WebSocketManager do
   def init(state) do
     websocket_server_conf = Application.get_env(:middle_controller, :websocket_server_conf)
 
-    case MiddleController.Tools.ConfigUtil.use_wss?() do
+    case ConfigManager.websocket_server_conf(:tls?) do
       true ->
         :socket_server_wss.start(
           websocket_server_conf.port,
           &socket_data_in/4,
           __MODULE__,
           websocket_server_conf.pre_start_process,
-          MiddleController.Tools.ConfigUtil.wss_certfile(),
-          MiddleController.Tools.ConfigUtil.wss_keyfile()
+          ConfigManager.websocket_server_conf(:certfile),
+          ConfigManager.websocket_server_conf(:keyfile)
         )
 
       false ->

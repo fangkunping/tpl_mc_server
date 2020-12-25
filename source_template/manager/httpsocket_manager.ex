@@ -1,12 +1,14 @@
 defmodule MiddleController.Manager.HttpSocketManager do
   use GenServer
   alias MiddleController.Manager.HttpSocketManager, as: State
+  alias MiddleController.Manager.ConfigManager, as: ConfigManager
   defstruct [:port, :listen]
 
   # @header_common "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Methods: POST, GET\r\nAccess-Control-Max-Age: 1000\r\nAccess-Control-Allow-Headers: x-requested-with, Content-Type, origin, authorization, accept, client-security-token"
   @header_common "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *"
   @content_type_text 'text/html'
   @content_type_form_urlencode 'application/x-www-form-urlencoded'
+  @content_type_json_utf8 'application/json; charset=utf-8'
   @content_type_json 'application/json'
   # Client
 
@@ -29,7 +31,7 @@ defmodule MiddleController.Manager.HttpSocketManager do
   end
 
   defp send_to_tcp(socket, message) do
-    case MiddleController.Tools.ConfigUtil.use_https?() do
+    case ConfigManager.http_server_conf(:tls?) do
       true ->
         :ssl.send(socket, message)
         :ssl.close(socket)
@@ -41,7 +43,7 @@ defmodule MiddleController.Manager.HttpSocketManager do
   end
 
   defp get_peername(socket) do
-    case MiddleController.Tools.ConfigUtil.use_https?() do
+    case ConfigManager.http_server_conf(:tls?) do
       true ->
         :ssl.peername(socket)
 
@@ -63,7 +65,7 @@ defmodule MiddleController.Manager.HttpSocketManager do
     IO.inspect(get_peername(socket))
 
     response =
-      MiddleController.Action.HttpAction.run(
+      MiddleController.Action.HttpAction.run_post(
         path,
         get_content_type(headers) |> decode(post_body),
         headers
@@ -79,7 +81,15 @@ defmodule MiddleController.Manager.HttpSocketManager do
     IO.inspect(get_content_type(headers) |> decode(value))
     # 获取 来源的ip和端口
     IO.inspect(get_peername(socket))
-    send_to(socket, KunERAUQS.D0_f.json_encode(%{code: 0, data: "ok"}), @content_type_json)
+
+    response =
+      MiddleController.Action.HttpAction.run_get(
+        path,
+        URI.decode_query(value),
+        headers
+      )
+
+    send_to(socket, response, @content_type_json)
   end
 
   # 获取Content-Type类型
@@ -92,8 +102,12 @@ defmodule MiddleController.Manager.HttpSocketManager do
   end
 
   # 解码来源数据
-  def decode(@content_type_json, data) do
+  def decode(@content_type_json_utf8, data) do
     KunERAUQS.D0_f.json_decode(data)
+  end
+
+  def decode(@content_type_json, data) do
+    KunERAUQS.D0_f.json_decode(:unicode.characters_to_binary(data, :utf8, :latin1))
   end
 
   def decode(@content_type_form_urlencode, data) do
@@ -109,15 +123,15 @@ defmodule MiddleController.Manager.HttpSocketManager do
   def init(state) do
     http_server_conf = Application.get_env(:middle_controller, :http_server_conf)
 
-    case MiddleController.Tools.ConfigUtil.use_https?() do
+    case ConfigManager.http_server_conf(:tls?) do
       true ->
         :socket_server_https.start(
           http_server_conf.port,
           &socket_data_in/4,
           __MODULE__,
           http_server_conf.pre_start_process,
-          MiddleController.Tools.ConfigUtil.https_certfile(),
-          MiddleController.Tools.ConfigUtil.https_keyfile()
+          ConfigManager.http_server_conf(:certfile),
+          ConfigManager.http_server_conf(:keyfile)
         )
 
       false ->
