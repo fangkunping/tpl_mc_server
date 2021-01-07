@@ -176,7 +176,7 @@ handle_request (Socket, Port, HttpPacket, DataPid)->
 					%%io:format("in GET: ~p ~n",[HttpUri] ),
 					case HttpUri of
 						{_, Value} ->
-							case sp_string:unjoin(Value, "?") of
+							case string:split(Value, "?", all) of
 								[Path, Value2]->
 									handle_get(Socket, Port, DataPid, {get, Path, Value2, []});
 								_ ->

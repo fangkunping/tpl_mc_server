@@ -23,8 +23,8 @@ defmodule MiddleController.Manager.CacheManager do
     GenServer.cast(__MODULE__, {:store, key, value})
   end
 
-  def fetch(key) do
-    GenServer.call(__MODULE__, {:fetch, key})
+  def fetch(key, default \\ nil) do
+    GenServer.call(__MODULE__, {:fetch, key, default})
   end
 
   # Server (callbacks)
@@ -36,8 +36,8 @@ defmodule MiddleController.Manager.CacheManager do
   end
 
   @impl true
-  def handle_call({:fetch, key}, _from, state) do
-    {:reply, read(key), state}
+  def handle_call({:fetch, key, default}, _from, state) do
+    {:reply, read!(key, default), state}
   end
 
   @impl true

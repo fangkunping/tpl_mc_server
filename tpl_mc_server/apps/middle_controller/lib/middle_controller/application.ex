@@ -12,6 +12,7 @@ defmodule MiddleController.Application do
       {MiddleController.Manager.SocketManager, nil},
       {MiddleController.Manager.WebSocketManager, nil},
       {MiddleController.Manager.HttpSocketManager, nil},
+      {MiddleController.Manager.TickManager, nil},
       # Starts a worker by calling: MiddleController.Worker.start_link(arg)
       # {MiddleController.Worker, arg}
     ]
