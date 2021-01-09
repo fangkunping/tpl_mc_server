@@ -114,15 +114,21 @@ send_info_message(MessagePid, V) ->
 .
 
 par_connect(Listen, DataPid, MessagePid, Port) ->
-	{Any, Socket} = gen_tcp:accept(Listen),
-	case {Any, Socket} of
-		{ok, Socket} ->
-			send_info_message(MessagePid, {msg, "Socket connected", Socket, self()}),
-			spawn(fun() -> par_connect(Listen, DataPid, MessagePid, Port) end),
-			loop(Socket, DataPid, MessagePid, Port) ;
-		{error, Reason} ->
-			spawn(fun() -> par_connect(Listen, DataPid, MessagePid, Port) end),
-			send_info_message(MessagePid, {error, "Socket connect error", Reason})
+	try
+		{Any, Socket} = gen_tcp:accept(Listen),
+		case {Any, Socket} of
+			{ok, Socket} ->
+				send_info_message(MessagePid, {msg, "Socket connected", Socket, self()}),
+				spawn(fun() -> par_connect(Listen, DataPid, MessagePid, Port) end),
+				loop(Socket, DataPid, MessagePid, Port) ;
+			{error, Reason} ->
+				spawn(fun() -> par_connect(Listen, DataPid, MessagePid, Port) end),
+				send_info_message(MessagePid, {error, "Socket connect error", Reason})
+		end
+	catch
+        Type:CrashReason ->
+			io:format("http gen_tcp catch error -> ~p:~p~n",[Type, CrashReason]),
+			spawn(fun() -> par_connect(Listen, DataPid, MessagePid, Port) end)
 	end
 .
 

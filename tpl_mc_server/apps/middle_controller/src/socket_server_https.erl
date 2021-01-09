@@ -118,28 +118,34 @@ send_info_message(MessagePid, V) ->
 .
 
 par_connect(Listen, DataPid, MessagePid, Port) ->
-	{Any, TLSTransportSocket} = ssl:transport_accept(Listen),
-	SuccessFn = fun(Socket) ->
-		send_info_message(MessagePid, {msg, "Socket connected", Socket, self()}),
-		spawn(fun() -> par_connect(Listen, DataPid, MessagePid, Port) end),
-		loop(Socket, DataPid, MessagePid, Port) 
-	end,
-	FailFn = fun(Reason) ->
+	try
+		{Any, TLSTransportSocket} = ssl:transport_accept(Listen),
+		SuccessFn = fun(Socket) ->
+			send_info_message(MessagePid, {msg, "Socket connected", Socket, self()}),
 			spawn(fun() -> par_connect(Listen, DataPid, MessagePid, Port) end),
-			send_info_message(MessagePid, {error, "Socket connect error", Reason})
-	end,
-	case {Any, TLSTransportSocket} of
-		{ok, TLSTransportSocket} ->
-			case ssl:handshake(TLSTransportSocket) of
-				{ok, SSLSocket} -> 
-					SuccessFn(SSLSocket);
-				{ok, SSLSocket, _Ext} ->
-					SuccessFn(SSLSocket);
-				{error, Reason} ->
-					FailFn(Reason)
-			end;
-		{error, Reason} ->
-			FailFn(Reason)
+			loop(Socket, DataPid, MessagePid, Port) 
+		end,
+		FailFn = fun(Reason) ->
+				spawn(fun() -> par_connect(Listen, DataPid, MessagePid, Port) end),
+				send_info_message(MessagePid, {error, "Socket connect error", Reason})
+		end,
+		case {Any, TLSTransportSocket} of
+			{ok, TLSTransportSocket} ->
+				case ssl:handshake(TLSTransportSocket) of
+					{ok, SSLSocket} -> 
+						SuccessFn(SSLSocket);
+					{ok, SSLSocket, _Ext} ->
+						SuccessFn(SSLSocket);
+					{error, Reason} ->
+						FailFn(Reason)
+				end;
+			{error, Reason} ->
+				FailFn(Reason)
+		end
+	catch
+        Type:CrashReason ->
+			io:format("https gen_tcp catch error -> ~p:~p~n",[Type, CrashReason]),
+			spawn(fun() -> par_connect(Listen, DataPid, MessagePid, Port) end)
 	end
 .
 

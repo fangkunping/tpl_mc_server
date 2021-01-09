@@ -47,7 +47,7 @@ start(Port, DataPid, MessagePid) ->
 	start(Port, DataPid, MessagePid, 0)
 .
 start(Port, DataPid, MessagePid, PNum) ->
-	case gen_tcp:listen(Port, [binary, {packet, 0}, {packet_size, 80000000}, {reuseaddr, true},{active, once},{delay_send, true},{send_timeout, 5000},{sndbuf, 16 * 1024},{recbuf, 16 * 1024},{high_watermark, 128 * 1024}, {low_watermark, 64 * 1024}]) of
+	case gen_tcp:listen(Port, [binary, {packet, 0}, {packet_size, 10000}, {reuseaddr, true},{active, once},{delay_send, true},{send_timeout, 5000},{sndbuf, 16 * 1024},{recbuf, 16 * 1024},{high_watermark, 128 * 1024}, {low_watermark, 64 * 1024}]) of
 	% case gen_tcp:listen(Port, [binary, {packet, 0}, {packet_size, 80000000}, {reuseaddr, true},{active, once},{nodelay, true},{send_timeout, 5000}]) of
 		{error, Reason} ->
 			MessagePid ! {error, "Listen error", Reason};
@@ -80,15 +80,23 @@ start(Port, DataPid, MessagePid, PNum) ->
 %.
 
 par_connect(Listen, DataPid, MessagePid, Port) ->
-	{Any, Socket} = gen_tcp:accept(Listen),
-	case {Any, Socket} of
-		{ok, Socket} ->
-			MessagePid ! {msg, "Socket connected", Socket, self()},
-			spawn(fun() -> par_connect(Listen, DataPid, MessagePid, Port) end),
-			loop(Socket, DataPid, MessagePid, Port, <<>>, false);
-		{error, Reason} ->
-			spawn(fun() -> par_connect(Listen, DataPid, MessagePid, Port) end),
-			MessagePid ! {error, "Socket connect error", Reason}
+	try
+
+		{Any, Socket} = gen_tcp:accept(Listen),
+		case {Any, Socket} of
+			{ok, Socket} ->
+				MessagePid ! {msg, "Socket connected", Socket, self()},
+				spawn(fun() -> par_connect(Listen, DataPid, MessagePid, Port) end),
+				loop(Socket, DataPid, MessagePid, Port, <<>>, false);
+			{error, Reason} ->
+				spawn(fun() -> par_connect(Listen, DataPid, MessagePid, Port) end),
+				MessagePid ! {error, "Socket connect error", Reason}
+		end
+
+    catch
+        Type:CrashReason ->
+			io:format("ws gen_tcp catch error -> ~p:~p~n",[Type, CrashReason]),
+			spawn(fun() -> par_connect(Listen, DataPid, MessagePid, Port) end)
 	end
 .
 
