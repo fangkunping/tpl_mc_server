@@ -86,38 +86,31 @@ start(Port, DataPid, MessagePid, PNum, Certfile, Keyfile) ->
 %.
 
 par_connect(Listen, DataPid, MessagePid, Port) ->
-	try
-
-		{Any, TLSTransportSocket} = ssl:transport_accept(Listen),
-		SuccessFn = fun(Socket) ->
-			MessagePid ! {msg, "Socket connected", Socket, self()},
-			spawn(fun() -> par_connect(Listen, DataPid, MessagePid, Port) end),
-			loop(Socket, DataPid, MessagePid, Port, <<>>, false)
-		end,
-		FailFn = fun(Reason) ->
-			spawn(fun() -> par_connect(Listen, DataPid, MessagePid, Port) end),
-			MessagePid ! {error, "Socket connect error", Reason}
-		end,
-		case {Any, TLSTransportSocket} of
-			{ok, TLSTransportSocket} ->
-				case ssl:handshake(TLSTransportSocket) of
-					{ok, SSLSocket} -> 
-						SuccessFn(SSLSocket);
-					{ok, SSLSocket, _Ext} ->
-						SuccessFn(SSLSocket);
-					{error, Reason} ->
-						FailFn(Reason)
-				end;
-			{error, Reason} ->
-				FailFn(Reason)
-		end
-    catch
-        Type:CrashReason ->
-			io:format("wss gen_tcp catch error -> ~p:~p~n",[Type, CrashReason]),
-			spawn(fun() -> par_connect(Listen, DataPid, MessagePid, Port) end)
-	end
+	SuccessFn = fun(Socket) ->
+		MessagePid ! {msg, "Socket connected", Socket, self()},
+		loop(Socket, DataPid, MessagePid, Port, <<>>, false)
+	end,
+	FailFn = fun(Reason) ->
+		MessagePid ! {error, "Socket connect error", Reason}
+	end,
+	{Any, TLSTransportSocket} = ssl:transport_accept(Listen),
+	spawn(fun() -> par_connect(Listen, DataPid, MessagePid, Port) end),
+	ssl_handshake(SuccessFn, FailFn, {Any, TLSTransportSocket})
 .
 
+ssl_handshake(SuccessFn, FailFn, {ok, TLSTransportSocket}) ->
+	case ssl:handshake(TLSTransportSocket, 5000) of
+		{ok, SSLSocket} -> 
+			SuccessFn(SSLSocket);
+		{ok, _SSLSocket, _Ext} ->
+			FailFn("not support hello ssl handshake!");
+		{error, Reason} ->
+			FailFn(Reason)
+	end
+;
+ssl_handshake(_SuccessFn, FailFn, {error, Reason}) ->
+	FailFn(Reason)
+.
 
 
 loop(Socket, DataPid, MessagePid, Port, Lave, IsHandshaked) ->
