@@ -51,7 +51,7 @@ start(Port, DataPid, MessagePid, PNum, Certfile, Keyfile) ->
 	case ssl:listen(Port, [
 		{certfile, Certfile}, 
 		{keyfile, Keyfile}, 
-		binary, {packet, 0}, {packet_size, 10000}, {reuseaddr, true},{active, once},
+		binary, {packet, 0}, {packet_size, 0}, {reuseaddr, true},{active, once},
 		{delay_send, true},{send_timeout, 5000},{sndbuf, 16 * 1024},{recbuf, 16 * 1024},
 		{high_watermark, 128 * 1024}, {low_watermark, 64 * 1024}]) of
 	% case gen_tcp:listen(Port, [binary, {packet, 0}, {packet_size, 80000000}, {reuseaddr, true},{active, once},{nodelay, true},{send_timeout, 5000}]) of
@@ -121,7 +121,7 @@ loop(Socket, DataPid, MessagePid, Port, Lave, IsHandshaked) ->
 				true ->					
 					case get_all(list_to_binary([Lave, Bin])) of
 						{ok, DataLeave} ->
-							% inet:setopts(Socket,[{active,once}]),
+							inet:setopts(Socket,[{active,once}]),
 							loop(Socket, DataPid, MessagePid, Port, DataLeave, true);
 						close ->
 						 	MessagePid ! {msg, "socket closed", Socket};
