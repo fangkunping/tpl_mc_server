@@ -121,7 +121,7 @@ loop(Socket, DataPid, MessagePid, Port, Lave, IsHandshaked) ->
 				true ->					
 					case get_all(list_to_binary([Lave, Bin])) of
 						{ok, DataLeave} ->
-							inet:setopts(Socket,[{active,once}]),
+							ssl:setopts(Socket,[{active,once}]),
 							loop(Socket, DataPid, MessagePid, Port, DataLeave, true);
 						close ->
 						 	MessagePid ! {msg, "socket closed", Socket};
