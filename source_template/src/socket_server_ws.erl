@@ -213,13 +213,15 @@ get_data(Data) ->
 				1 ->
 					case Mask of
 						1 ->
-							get_data2(true, Bin, Data);
+							get_data2(Bin, Data);
 						_ ->
 							{err, "Not Support Mask /= 1"}
 					end;
 				0 ->
 					{err, "Not Support FIN == 0"}
 			end;
+
+
 		<< _:4, 8:4, _/bits>> -> %关闭连接
 			close;
 
@@ -297,8 +299,6 @@ get_all(Data) ->
 	end
 .
 
-
-
 send_data_all([H|T]) ->
 	case H of
 		{wait_binary, Data} ->
@@ -315,17 +315,18 @@ send_data_all([]) ->
 	<<>>
 .
 
-get_data2(true,<<Len:7, MaskKey:32, MuskRest/bits>>, OrData) when Len < 126 ->
-	get_data3(MuskRest, MaskKey, Len, OrData)
+% 计算有效载荷长度，解决粘包
+get_data2(<<Len:7, RestData/bits>>, OrData) when Len < 126 ->
+	get_data3(Len, RestData, OrData)
 ;
-get_data2(true,<<126:7, Len:16, MaskKey:32, MuskRest/bits>>, OrData) when Len > 125 ->
-	get_data3(MuskRest, MaskKey, Len, OrData)
+get_data2(<<126:7, Len:16, RestData/bits>>, OrData) when Len > 125 ->
+	get_data3(Len, RestData, OrData)
 ;
-get_data2(true,<<127:7, 0:1, Len:63, MaskKey:32, MuskRest/bits>>, OrData) when Len > 16#ffff ->
-	get_data3(MuskRest, MaskKey, Len, OrData)
+get_data2(<<127:7, 0:1, Len:63, RestData/bits>>, OrData) when Len > 16#ffff ->
+	get_data3(Len, RestData, OrData)
 .
 
-get_data3(MuskRest, MaskKey, Len, OrData) ->
+get_data3(Len, <<MaskKey:32, MuskRest/bits>>, OrData) ->
 	MuskRestSize = size(MuskRest),
 	if 
 		MuskRestSize < Len ->
@@ -335,7 +336,32 @@ get_data3(MuskRest, MaskKey, Len, OrData) ->
 			Data = unmask(UnMuskData, MaskKey, <<>>),
 			get_data4(Data, DataLeave)
 	end
+;
+get_data3(_, _, OrData) ->
+	[{wait_binary, OrData}]
 .
+
+% get_data2(true,<<Len:7, MaskKey:32, MuskRest/bits>>, OrData) when Len < 126 ->
+% 	get_data3(MuskRest, MaskKey, Len, OrData)
+% ;
+% get_data2(true,<<126:7, Len:16, MaskKey:32, MuskRest/bits>>, OrData) when Len > 125 ->
+% 	get_data3(MuskRest, MaskKey, Len, OrData)
+% ;
+% get_data2(true,<<127:7, 0:1, Len:63, MaskKey:32, MuskRest/bits>>, OrData) when Len > 16#ffff ->
+% 	get_data3(MuskRest, MaskKey, Len, OrData)
+% .
+
+% get_data3(MuskRest, MaskKey, Len, OrData) ->
+% 	MuskRestSize = size(MuskRest),
+% 	if 
+% 		MuskRestSize < Len ->
+% 			[{wait_binary, OrData}] ;
+% 		true ->
+% 			{UnMuskData, DataLeave} = erlang:split_binary(MuskRest, Len),
+% 			Data = unmask(UnMuskData, MaskKey, <<>>),
+% 			get_data4(Data, DataLeave)
+% 	end
+% .
 
 get_data4(R, <<>>) ->
 	[R]

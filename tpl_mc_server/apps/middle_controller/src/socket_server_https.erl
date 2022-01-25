@@ -199,7 +199,7 @@ handle_request (Socket, Port, HttpPacket, DataPid)->
 							send_unsupported_error(Socket)
 					end;
 				'OPTIONS' ->
-						ssl:send(Socket, "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: 12\r\n\r\nhello world!"),
+						ssl:send(Socket, "HTTP/1.1 200 OK\r\nAccess-Control-Allow-Origin: *\r\nAccess-Control-Allow-Headers: token\r\nContent-Length: 12\r\n\r\nhello world!"),
 						ssl:close(Socket);
 				_ ->
 					io:format("unknown HttpMethod: ~p ~n",[HttpMethod] ),
