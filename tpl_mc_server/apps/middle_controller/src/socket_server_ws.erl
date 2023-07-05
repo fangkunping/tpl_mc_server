@@ -203,12 +203,39 @@ unmask(<<Data:8>>, MaskKey, Acc) ->
 unmask(<<>>, _, Acc) ->
   Acc.
 
-
-%只支持文本接收 Opcode = 1
+%  https://datatracker.ietf.org/doc/html/rfc6455
+%   0                   1                   2                   3
+%   0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1 2 3 4 5 6 7 8 9 0 1
+%  +-+-+-+-+-------+-+-------------+-------------------------------+
+%  |F|R|R|R| opcode|M| Payload len |    Extended payload length    |
+%  |I|S|S|S|  (4)  |A|     (7)     |             (16/64)           |
+%  |N|V|V|V|       |S|             |   (if payload len==126/127)   |
+%  | |1|2|3|       |K|             |                               |
+%  +-+-+-+-+-------+-+-------------+ - - - - - - - - - - - - - - - +
+%  |     Extended payload length continued, if payload len == 127  |
+%  + - - - - - - - - - - - - - - - +-------------------------------+
+%  |                               |Masking-key, if MASK set to 1  |
+%  +-------------------------------+-------------------------------+
+%  | Masking-key (continued)       |          Payload Data         |
+%  +-------------------------------- - - - - - - - - - - - - - - - +
+%  :                     Payload Data continued ...                :
+%  + - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - - +
+%  |                     Payload Data continued ...                |
+%  +---------------------------------------------------------------+
+% Webdocket数据帧中OPCODE定义：
+% 0x0表示附加数据帧
+% 0x1表示文本数据帧
+% 0x2表示二进制数据帧
+% 0x3-7暂时无定义，为以后的非控制帧保留
+% 0x8表示连接关闭
+% 0x9表示ping
+% 0xA表示pong
+% 0xB-F暂时无定义，为以后的控制帧保留
+% 只支持接收 Opcode = 1 和 9
 %FIN:1, RSV1:1, RSV2:1, RSV3:1, Opcode:4, (Len:7|126:7, Len:16|127:7, Len:64) , (Mask:0 | Mask:4), Payload
 get_data(Data) -> 
 	case Data of
-		<< FIN:1, _RSV1:1, _RSV2:1, _RSV3:1, Opcode:4, Mask:1, Bin/bits >> when Opcode == 1 orelse Opcode == 9 ->
+		<< FIN:1, _RSV1:1, _RSV2:1, _RSV3:1, Opcode:4, Mask:1, Bin/bits >> when Opcode == 1 orelse Opcode == 2 orelse Opcode == 9 ->
 			case FIN of
 				1 ->
 					case Mask of
